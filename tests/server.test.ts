@@ -34,6 +34,10 @@ describe("MCP server", () => {
       [
         "add_comment_to_work_items",
         "add_work_item_comment",
+        "commit_file_changes",
+        "create_branch",
+        "create_branch_commit_and_pull_request",
+        "create_pull_request",
         "get_current_identity",
         "get_file_content",
         "get_files_content",
