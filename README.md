@@ -1,7 +1,7 @@
 # tfs-mcp-server
 
 MCP server (stdio) for **Microsoft TFS / Azure DevOps Server** using REST API **6.0**.
-Gives an AI agent tools for work items, Git repository files and identity lookup.
+Gives an AI agent tools for work items, Git repository files (read and write: branches, commits, pull requests) and identity lookup.
 Work items and repositories may live in different team projects: every tool accepts an
 optional `project` argument that overrides the configured default.
 
@@ -9,7 +9,7 @@ optional `project` argument that overrides the configured default.
 
 - Node.js 20+
 - A TFS / Azure DevOps Server collection reachable over HTTPS
-- A Personal Access Token with scopes: Work Items (read & write), Code (read), Identity (read)
+- A Personal Access Token with scopes: Work Items (read & write), Code (read & write; write is needed for the Git write tools - branches, commits and pull requests), Identity (read)
 
 ## Install & build
 
@@ -91,6 +91,15 @@ Use `get_current_identity` / `search_identities` to obtain valid values.
 | `get_files_content` | Several files from one repo/version in one call (`itemsbatch` + parallel content download), per-path diagnostics |
 | `list_directory` | Entries under a directory (one level or recursive) with object ids, content type and latest commit |
 
+### Git write (branches, commits, pull requests)
+
+| Tool | Purpose |
+| --- | --- |
+| `create_branch` | Create `name` from `fromBranch` (default: repo default branch) or `fromCommit`. Fails if it exists unless `ifExists: "reuse"` |
+| `commit_file_changes` | One commit on an existing `branch` with up to 50 `changes` (`add` / `edit` / `delete`). Each add/edit carries either full `content` (`encoding` utf-8 or base64) or exact find/replace `edits` applied to the current file (each `find` must match exactly once unless `replaceAll`). Optional `expectedBranchTip` guards against concurrent pushes |
+| `create_pull_request` | Open `sourceBranch` -> `targetBranch` with title, description, `workItemIds`, `reviewers` (identity ids), `isDraft`. Work items are sent as `workItemRefs`; ids TFS did not record are linked from the work item side with an `ArtifactLink` relation. Per-id link results are returned |
+| `create_branch_commit_and_pull_request` | One-shot workflow: create `newBranch` from `targetBranch`, commit `changes`, open the PR (`title` defaults to the commit `message`) linked to `workItemIds`. On failure the error names the failed step, lists completed steps and tells you which granular tool to continue with. `reuseExistingBranch: true` continues on an existing branch |
+
 ### Identity
 
 | Tool | Purpose |
@@ -106,6 +115,12 @@ run_query { queryId: "Shared Queries/Team/Triage", extraWhere: "[System.Tags] CO
 update_work_items { ids: [...], state: "Active", assignedTo: "Jane Doe <CORP\\jdoe>" }
 add_comment_to_work_items { ids: [...], text: "Picked up in sprint 12" }
 get_files_content { project: "Infra", repository: "tools", branch: "develop", paths: ["/README.md", "/src/main.ts"] }
+create_branch_commit_and_pull_request {
+  project: "Infra", repository: "tools", newBranch: "feature/1234-bump-timeout", targetBranch: "develop",
+  message: "Bump request timeout to 60s",
+  changes: [{ path: "/src/config.ts", changeType: "edit", edits: [{ find: "timeoutMs: 30_000", replace: "timeoutMs: 60_000" }] }],
+  workItemIds: [1234]
+}
 ```
 
 ## Notes on TFS API versions
@@ -114,6 +129,7 @@ get_files_content { project: "Infra", repository: "tools", branch: "develop", pa
 - The work item **comments** API only exists as a preview in 6.0; the server uses `6.0-preview.3`.
 - `connectionData` (`6.0-preview`) and `identities` (`6.0-preview.1`) are collection-scoped; the identities call is optional and failures are tolerated.
 - `wit/$batch` is used for bulk updates; if a server rejects it (404/405/400) the tool transparently falls back to individual PATCH requests.
+- Branches are created with `POST git/repositories/{repo}/refs` (old object id `000…0`), commits with `POST .../pushes` (one commit, `rawtext` or `base64encoded` content), pull requests with `POST .../pullrequests`. Work items are linked via `workItemRefs` on creation; ids that `GET .../pullRequests/{id}/workitems` does not report afterwards are linked with an `ArtifactLink` relation to `vstfs:///Git/PullRequestId/{projectId}%2F{repositoryId}%2F{pullRequestId}`.
 - If TFS answers with an HTML sign-in page or HTTP 203 instead of JSON, the PAT is invalid or the base URL does not point at a collection; the error message says so.
 
 ## Project layout
@@ -124,7 +140,7 @@ src/
   server.ts           McpServer factory + tool registration
   config.ts           env parsing, project resolution
   client.ts           REST client (Basic PAT auth, URL builder, TfsApiError)
-  services/           TFS API wrappers (workitems, git, identity)
+  services/           TFS API wrappers (workitems, git (read), gitwrite (branches/pushes/PRs), identity)
   tools/              MCP tool definitions (zod schemas)
   util/               html->text, batch helpers, tool result helpers
 tests/                vitest suites with a mocked fetch

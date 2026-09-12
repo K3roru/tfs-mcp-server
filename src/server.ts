@@ -3,6 +3,7 @@ import { TfsClient } from "./client.js";
 import type { TfsConfig } from "./config.js";
 import type { ToolContext } from "./context.js";
 import { registerFileTools } from "./tools/files.js";
+import { registerGitWriteTools } from "./tools/gitwrite.js";
 import { registerIdentityTools } from "./tools/identity.js";
 import { registerWorkItemTools } from "./tools/workitems.js";
 
@@ -23,12 +24,15 @@ export function createServer(config: TfsConfig, fetchImpl: typeof fetch = fetch)
           ? `Default project: "${config.defaultProject}". `
           : "No default project is configured; pass `project` where required. ") +
         "Work items and Git repositories may live in different projects - every tool accepts an optional `project` override. " +
-        "Use get_current_identity to learn the PAT owner's `assignedToValue`, and search_identities to resolve other people.",
+        "Use get_current_identity to learn the PAT owner's `assignedToValue`, and search_identities to resolve other people. " +
+        "Git write tools (create_branch, commit_file_changes, create_pull_request, or the one-shot create_branch_commit_and_pull_request) " +
+        "let you branch, commit file changes and open work-item-linked pull requests.",
     }
   );
 
   registerWorkItemTools(server, ctx);
   registerFileTools(server, ctx);
+  registerGitWriteTools(server, ctx);
   registerIdentityTools(server, ctx);
   return server;
 }
